@@ -1,58 +1,73 @@
+# sender.py
+
+import logging
+import requests
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+
+TELEGRAM_BOT_TOKEN = "your_token_here"
+TMDB_API_KEY = "your_tmdb_key_here"
+ADMIN_CHAT_ID = 123456789
+BASE_URL = "https://newzbysms.com"
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🎬 Welcome! Send a movie name.")
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_input = update.message.text
     user = update.message.from_user
     user_name = user.first_name
     user_username = user.username or "No username"
 
-    # Search Movie in TMDB
     response = requests.get(
-        f"https://api.themoviedb.org/3/search/movie",
+        "https://api.themoviedb.org/3/search/movie",
         params={"api_key": TMDB_API_KEY, "query": user_input}
     )
-
     data = response.json()
-    if data["results"]:
-        movie = data["results"][0]
-        title = movie["title"]
-        overview = movie.get("overview", "No description available.")
-        poster_path = movie.get("poster_path")
-        movie_url = f"{BASE_URL}/?movie={title.replace(' ', '-')}"
 
-        # Poster Image URL
-        if poster_path:
-            poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
-        else:
-            poster_url = None
+    if not data.get("results"):
+        await update.message.reply_text("❌ Movie not found.")
+        return
 
-        # Caption for User
-        user_caption = (
-            f"🎬 *{title}*\n"
-            f"📝 {overview}\n"
-            f"📥 [Download Now]({movie_url})"
-        )
+    movie = data["results"][0]
+    title = movie.get("title", "Unknown")
+    overview = movie.get("overview", "No description.")
+    poster_path = movie.get("poster_path")
+    movie_url = f"{BASE_URL}/?movie={title.replace(' ', '-')}"
 
-        # Send to User
-        if poster_url:
-            await context.bot.send_photo(
-                chat_id=update.message.chat_id,
-                photo=poster_url,
-                caption=user_caption,
-                parse_mode="Markdown"
-            )
-        else:
-            await update.message.reply_text(user_caption, parse_mode="Markdown")
+    poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else None
 
-        # Send to Admin
-        admin_msg = (
-            f"🧑‍💻 User: {user_name} (@{user_username})\n"
-            f"🔍 Searched: {title}\n"
-            f"🔗 Link: {movie_url}"
-        )
+    caption = (
+        f"🎬 *{title}*\n"
+        f"📝 {overview}\n"
+        f"📥 [Download]({movie_url})"
+    )
 
-        if poster_url:
-            await context.bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=poster_url, caption=admin_msg)
-        else:
-            await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=admin_msg)
-
+    if poster_url:
+        await context.bot.send_photo(chat_id=update.effective_chat.id, photo=poster_url, caption=caption, parse_mode="Markdown")
     else:
-        await update.message.reply_text("❌ Movie not found. Please try another title.")
+        await update.message.reply_text(caption, parse_mode="Markdown")
+
+    admin_msg = (
+        f"🧑‍💻 User: {user_name} (@{user_username})\n"
+        f"🔍 Searched: {title}\n"
+        f"🔗 Link: {movie_url}"
+    )
+
+    if poster_url:
+        await context.bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=poster_url, caption=admin_msg)
+    else:
+        await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=admin_msg)
+
+def main():
+    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    logger.info("Bot started")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
