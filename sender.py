@@ -1,93 +1,87 @@
 import logging
 import requests
-import urllib.parse
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
 # --- CONFIG ---
 TELEGRAM_BOT_TOKEN = "8451279244:AAEnK50Qj0srjkW_dN5-KngHCBvJIQP3GX4"
 TMDB_API_KEY = "10b5dbf58eee4f65515a5b99e3134b22"
-ADMIN_CHAT_ID = 1979872756  # Tumhara Telegram ID
+ADMIN_CHAT_ID = 1979872756
 
-# --- Logging ---
+# --- LOGGING ---
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
-# --- TMDB Movie Search Function ---
-def search_movie_tmdb(query):
-    url = "https://api.themoviedb.org/3/search/movie"
-    params = {
-        "api_key": TMDB_API_KEY,
-        "query": query,
-        "language": "en-US"
-    }
-    response = requests.get(url, params=params)
-    if response.status_code == 200:
-        data = response.json()
-        if data["results"]:
-            movie = data["results"][0]
-            title = movie["title"]
-            overview = movie["overview"]
-            poster_path = movie["poster_path"]
-            poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else None
-            return title, overview, poster_url
-    return None, None, None
+# --- Global base URL (changeable by admin) ---
+BASE_URL = "https://newzbysms.com"
 
-# --- /start Command ---
+# --- Command: /start ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    name = user.first_name or "User"
-    welcome_message = f"🎬 Welcome {name}!\n\nKoi bhi movie ka naam bhejo aur main uska info dunga."
-    await update.message.reply_text(welcome_message)
+    await update.message.reply_text("🎬 Movie Bot Ready! Type any movie name to search.")
 
-# --- Handle User Messages ---
+# --- Command: /seturl <new_url> ---
+async def seturl(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global BASE_URL
+    if update.effective_chat.id != ADMIN_CHAT_ID:
+        await update.message.reply_text("⛔ Access Denied. You are not the admin.")
+        return
+
+    if not context.args:
+        await update.message.reply_text("⚠️ Usage: /seturl https://yourwebsite.com")
+        return
+
+    BASE_URL = context.args[0]
+    await update.message.reply_text(f"✅ Base URL updated to:\n{BASE_URL}")
+
+# --- Handle movie search ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global BASE_URL
     user_query = update.message.text
-    user = update.effective_user
-    user_id = user.id
-    username = f"@{user.username}" if user.username else user.first_name
+    user_id = update.effective_user.id
+    user_name = update.effective_user.first_name
 
-    title, overview, poster_url = search_movie_tmdb(user_query)
+    search_url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={user_query}"
+    response = requests.get(search_url)
+    data = response.json()
 
-    if title:
-        # ✅ Custom link with your website
-        encoded_title = urllib.parse.quote(title)
-        custom_link = f"https://newzbysms.com/?search={encoded_title}"
+    if not data.get("results"):
+        await update.message.reply_text("❌ Movie not found.")
+        return
 
-        # 🎁 Message to user
-        user_message = f"🎬 *{title}*\n\n📝 {overview}\n\n🔗 [Movie Link]({custom_link})"
-        if poster_url:
-            await update.message.reply_photo(photo=poster_url, caption=user_message, parse_mode='Markdown')
-        else:
-            await update.message.reply_text(user_message, parse_mode='Markdown')
+    movie = data["results"][0]
+    title = movie.get("title", "Unknown")
+    year = movie.get("release_date", "????")[:4]
 
-        # 🔔 Notify admin
-        admin_message = (
-            f"👤 *User:* {username} (ID: `{user_id}`)\n"
-            f"🔍 *Searched:* {user_query}\n"
-            f"🎬 *Found:* {title}\n"
-            f"🔗 *Link Sent:* {custom_link}"
-        )
-        await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=admin_message, parse_mode='Markdown')
+    # Create custom link with BASE_URL
+    download_link = f"{BASE_URL}/?s={'+'.join(title.lower().split())}"
 
-    else:
-        await update.message.reply_text("❌ Movie not found. Try another title.")
-        await context.bot.send_message(
-            chat_id=ADMIN_CHAT_ID,
-            text=f"❌ {username} ne '{user_query}' search kiya but movie nahi mili."
-        )
+    # Send to user
+    reply = f"🎬 *{title}* ({year})\n📥 [Download Now]({download_link})"
+    await update.message.reply_markdown(reply)
 
-# --- Main Function ---
-def main():
+    # Notify admin
+    admin_msg = (
+        f"📢 New Search Alert\n"
+        f"👤 User: {user_name} (ID: {user_id})\n"
+        f"🔍 Searched: {user_query}\n"
+        f"📤 Link Sent: {download_link}"
+    )
+    await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=admin_msg)
+
+# --- Main ---
+async def main():
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("seturl", seturl))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("🤖 Bot is running...")
-    app.run_polling()
+    print("Bot is running...")
+    await app.run_polling()
 
+# --- Entry Point ---
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())
