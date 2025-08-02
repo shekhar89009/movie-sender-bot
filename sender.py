@@ -2,12 +2,18 @@
 
 import logging
 import requests
+import os
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from dotenv import load_dotenv
 
-TELEGRAM_BOT_TOKEN = "your_token_here"
-TMDB_API_KEY = "your_tmdb_key_here"
-ADMIN_CHAT_ID = 123456789
+# Load variables from .env file
+load_dotenv()
+
+# --- CONFIGURATION ---
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TMDB_API_KEY = os.getenv("TMDB_API_KEY")
+ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID"))  # make sure it's numeric
 BASE_URL = "https://newzbysms.com"
 
 logging.basicConfig(level=logging.INFO)
