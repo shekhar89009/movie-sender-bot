@@ -7,72 +7,56 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, Con
 TELEGRAM_BOT_TOKEN = "8451279244:AAEnK50Qj0srjkW_dN5-KngHCBvJIQP3GX4"
 TMDB_API_KEY = "10b5dbf58eee4f65515a5b99e3134b22"
 ADMIN_CHAT_ID = 1979872756
-base_link = "https://newzbysms.com"  # Default link
+BASE_SITE_URL = "https://newzbysms.com"
 
-# --- LOGGER ---
+# --- LOGGING ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- STORE LINK (Changeable by admin) ---
-dynamic_link = {"url": base_link}
-
 # --- START COMMAND ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🎬 Welcome! Type any movie name to search.")
+    await update.message.reply_text("👋 Welcome! Mujhe koi bhi movie ka naam bhejo aur main uska download link dunga.")
 
-# --- ADMIN: Change link command ---
-async def setlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.id != ADMIN_CHAT_ID:
-        return
+# --- HANDLE SEARCH ---
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.message.text
+    user = update.message.from_user
 
-    if context.args:
-        new_link = context.args[0]
-        dynamic_link["url"] = new_link
-        await update.message.reply_text(f"✅ Link updated to: {new_link}")
-    else:
-        await update.message.reply_text("❗ Usage: /setlink https://yourlink.com")
-
-# --- MAIN SEARCH HANDLER ---
-async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_query = update.message.text
-    user_id = update.effective_chat.id
-
-    # Search TMDB
-    response = requests.get(f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={user_query}")
+    # TMDB API call
+    url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={query}"
+    response = requests.get(url)
     data = response.json()
 
-    if data["results"]:
-        title = data["results"][0]["title"]
-        movie_id = data["results"][0]["id"]
+    if data.get("results"):
+        movie = data["results"][0]
+        title = movie.get("title", "No Title Found")
 
-        # Create download link
-        link = f"{dynamic_link['url']}/?movie={movie_id}"
+        # Create custom link
+        safe_title = title.lower().replace(" ", "-")
+        download_link = f"{BASE_SITE_URL}/download/{safe_title}"
 
         # Send to user
-        await update.message.reply_text(f"🎥 *{title}*\n🔗 Download link: {link}", parse_mode="Markdown")
+        user_message = f"🎬 *{title}*\n📥 [Download Link]({download_link})"
+        await update.message.reply_markdown(user_message)
 
-        # Send info to admin
-        await context.bot.send_message(
-            chat_id=ADMIN_CHAT_ID,
-            text=(
-                f"🔍 *User:* `{user_id}` searched for: *{user_query}*\n"
-                f"📤 Link sent: {link}"
-            ),
-            parse_mode="Markdown"
+        # Notify admin
+        admin_message = (
+            f"👤 User: {user.first_name} (@{user.username or 'NoUsername'})\n"
+            f"🔍 Searched: {query}\n"
+            f"🎬 Found: {title}\n"
+            f"📤 Link sent: {download_link}"
         )
-    else:
-        await update.message.reply_text("❌ Movie not found!")
+        await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=admin_message)
 
-# --- MAIN FUNCTION ---
-def main():
+    else:
+        await update.message.reply_text("❌ Sorry, koi movie nahi mili!")
+
+# --- MAIN ---
+if __name__ == "__main__":
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("setlink", setlink))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    logger.info("🤖 Bot started...")
+    print("🤖 Bot is running...")
     app.run_polling()
-
-if __name__ == "__main__":
-    main()
